@@ -153,12 +153,16 @@ final class MeetingController extends Controller
         $this->assertCsrf();
         [$user, $meeting] = $this->owned($publicId);
         try {
+            $votingType = $this->app->request->input('voting_type');
             (new PollService($this->app->pdo))->create(
                 $meeting,
                 (int) $user['id'],
                 $this->app->request->input('title'),
                 $this->app->request->input('description'),
-                $this->app->request->input('show_results_to_participants') === '1'
+                $this->app->request->input('show_results_to_participants') === '1',
+                $votingType === '' ? 'yes_no_abstain' : $votingType,
+                $this->app->request->input('options'),
+                $this->app->request->input('include_abstain') === '1'
             );
             Flash::set('ok', 'Omröstningen skapades som utkast.');
         } catch (AppException $e) {

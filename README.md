@@ -2,7 +2,7 @@
 
 Ett enkelt webbaserat omröstningssystem för möten, till exempel föreningsmöten, bolagsstämmor, styrelsemöten och årsmöten.
 
-Första versionen är en medvetet liten MVP: konto för arrangören, möteskod, anmälan, godkännande, rösträtt och öppna JA/NEJ/AVSTÅR-omröstningar. Databasen är förberedd för fler omröstningstyper och för slutna omröstningar, men det flödet är inte byggt ännu.
+Första versionen är en medvetet liten MVP: konto för arrangören, möteskod, anmälan, godkännande, rösträtt samt öppna omröstningar. Arrangören kan välja JA, NEJ och AVSTÅR, eller ange egna svarsalternativ där deltagaren väljer ett, till exempel ett personval. Databasen är förberedd för fler omröstningstyper och för slutna omröstningar, men de flödena är inte byggda ännu.
 
 ## Krav
 
@@ -56,7 +56,7 @@ php -S localhost:8080 -t public public/router.php
 
 Arrangören skapar ett konto, loggar in och skapar ett möte. Mötet får en kod i stil med `SUN-7K4P`. När mötet öppnas kan deltagare anmäla sig med namn, e-post och eventuella extra fält. De hamnar i vänteläge tills arrangören godkänner dem och, om de ska få rösta, ger dem rösträtt.
 
-Arrangören skapar en omröstning, öppnar den och stänger den. Deltagarens sida uppdateras själv. En röst kan bara lämnas en gång. Resultatfördelningen visas inte medan omröstningen pågår. När den stängts ser arrangören alltid resultatet. Deltagarna ser det bara om rutan om resultatvisning var ikryssad.
+Arrangören skapar en omröstning, öppnar den och stänger den. I ett eget val skrivs ett svarsalternativ per rad, och AVSTÅR kan läggas till. Deltagaren väljer ett alternativ. Sidan uppdateras själv. En röst kan bara lämnas en gång. Resultatfördelningen visas inte medan omröstningen pågår. När den stängts ser arrangören alltid resultatet. Deltagarna ser det bara om rutan om resultatvisning var ikryssad.
 
 ## Struktur
 
@@ -94,4 +94,4 @@ Testerna använder databasen `meetingax_test` och samma användare som i `config
 
 ## Det som inte ingår ännu
 
-Slutna omröstningar, flera svarsalternativ, personval, flera administratörer i gränssnittet, fullmakter, dagordning och protokoll. Tabellerna `vote_participation` och `secret_ballots` finns så att sluten omröstning kan läggas till utan att rösten och identiteten hamnar i samma rad. De används inte av MVP:n.
+Slutna omröstningar, val där deltagaren kan välja flera alternativ samtidigt, rangordnade val, flera administratörer i gränssnittet, fullmakter, dagordning och protokoll. Tabellerna `vote_participation` och `secret_ballots` finns så att sluten omröstning kan läggas till utan att rösten och identiteten hamnar i samma rad. De används inte av MVP:n.

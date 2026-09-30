@@ -11,6 +11,14 @@
                 <?php if (!empty($poll['description'])): ?>
                     <p><?= nl2e($poll['description']) ?></p>
                 <?php endif; ?>
+                <p class="muted"><?= e(voting_type_label((string) ($poll['voting_type'] ?? ''))) ?></p>
+                <?php if ($poll['status'] !== 'closed' && !empty($poll['options'])): ?>
+                    <ul class="option-preview">
+                        <?php foreach ($poll['options'] as $option): ?>
+                            <li><?= e($option['label']) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
                 <p>Avgivna röster: <strong data-poll-count="<?= e($poll['public_id']) ?>"><?= (int) $poll['submitted_count'] ?></strong></p>
                 <p class="muted">
                     <?= (int) $poll['show_results_to_participants'] === 1
@@ -18,7 +26,7 @@
                         : 'Deltagarna får inte se resultatfördelningen.' ?>
                 </p>
                 <?php if ($poll['status'] === 'open'): ?>
-                    <p class="muted">Fördelningen mellan JA, NEJ och AVSTÅR visas först när omröstningen stängts.</p>
+                    <p class="muted">Fördelningen visas först när omröstningen stängts.</p>
                 <?php endif; ?>
                 <?php if ($poll['status'] === 'closed' && !empty($poll['results'])): ?>
                     <div data-admin-results="1">

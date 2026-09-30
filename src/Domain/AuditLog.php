@@ -8,7 +8,7 @@ use PDO;
 
 /**
  * Händelselogg. Ett avgivet val skrivs aldrig hit, så loggen inte kan
- * koppla en deltagare till JA, NEJ eller AVSTÅR.
+ * koppla en deltagare till ett svarsalternativ.
  */
 final class AuditLog
 {

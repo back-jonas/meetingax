@@ -102,6 +102,8 @@ label input, label select, label textarea {
 .btn-yes { background: var(--green); color: #fff; }
 .btn-no { background: var(--red); color: #fff; }
 .btn-abstain { background: #5c6570; color: #fff; }
+.btn-choice { background: var(--blue); color: #fff; }
+.option-preview { margin: 0.2rem 0 0.8rem; padding-left: 1.2rem; color: var(--muted); }
 
 .badge {
     display: inline-block;
@@ -165,7 +167,7 @@ table.data th { font-size: 0.85rem; color: var(--muted); }
 
 body.participant { background: #efeae1; }
 body.participant .vote-actions { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
-body.participant .vote-btn { width: 100%; min-height: 4.25rem; font-size: 1.35rem; border-radius: 12px; }
+body.participant .vote-btn { width: 100%; min-height: 4.25rem; font-size: 1.35rem; border-radius: 12px; white-space: normal; text-align: center; }
 body.participant h1 { font-size: 1.7rem; }
 .result-line { font-size: 1.25rem; font-weight: 700; }
 

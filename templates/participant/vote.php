@@ -22,7 +22,7 @@
                     'yes' => 'btn-yes',
                     'no' => 'btn-no',
                     'abstain' => 'btn-abstain',
-                    default => 'btn-primary',
+                    default => 'btn-choice',
                 };
                 ?>
                 <button class="btn vote-btn <?= e($class) ?>" name="option" value="<?= e($option['option_key']) ?>" type="submit"><?= e($option['label']) ?></button>

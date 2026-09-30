@@ -252,4 +252,58 @@ if printf '%s' "$hidden_part" | grep -q 'data-results-panel'; then
 fi
 printf '%s' "$hidden_part" | grep -q 'Resultatet visas inte för deltagarna' || fail "deltagaren fick ingen förklaring"
 
+echo "Eget val med svarsalternativ som arrangören anger"
+page=$(curl -s -c "$ADMIN" -b "$ADMIN" "$BASE/meeting/${public_id}/votes")
+printf '%s' "$page" | grep -q 'Eget val, välj ett' || fail "formuläret saknar eget val"
+token=$(printf '%s' "$page" | csrf_from)
+curl -s -c "$ADMIN" -b "$ADMIN" -o /dev/null \
+  --data-urlencode "title=Val av ordförande" \
+  --data-urlencode "voting_type=single_choice" \
+  --data-urlencode $'options=Karin Holm\nBo Berg' \
+  --data-urlencode "include_abstain=1" \
+  --data-urlencode "show_results_to_participants=1" \
+  --data-urlencode "_csrf=${token}" \
+  "$BASE/meeting/${public_id}/votes"
+page=$(curl -s -c "$ADMIN" -b "$ADMIN" "$BASE/meeting/${public_id}/votes")
+person_id=$(printf '%s' "$page" | sed -n 's#.*/votes/\([A-Z0-9]\{12\}\).*#\1#p' | head -n 1)
+[[ -n "$person_id" && "$person_id" != "$poll_id" && "$person_id" != "$hidden_id" ]] || fail "hittade inte personvalet"
+printf '%s' "$page" | grep -q 'Karin Holm' || fail "alternativet syns inte i utkastet"
+token=$(printf '%s' "$page" | csrf_from)
+curl -s -c "$ADMIN" -b "$ADMIN" -o /dev/null \
+  -d "action=open&_csrf=${token}" \
+  "$BASE/meeting/${public_id}/votes/${person_id}"
+vote_page=$(curl -s -c "$PART" -b "$PART" "$BASE/m/${code_value}/vote")
+printf '%s' "$vote_page" | grep -q 'Karin Holm' || fail "Karin saknas på röstsidan"
+printf '%s' "$vote_page" | grep -q 'Bo Berg' || fail "Bo saknas på röstsidan"
+printf '%s' "$vote_page" | grep -q 'btn-choice' || fail "personknappen saknar egen stil"
+if printf '%s' "$vote_page" | grep -q 'data-result-row'; then
+  fail "deltagaren såg fördelning i ett öppet personval"
+fi
+token=$(printf '%s' "$vote_page" | csrf_from)
+curl -s -c "$PART" -b "$PART" -o /dev/null \
+  --data-urlencode "option=opt1" \
+  --data-urlencode "poll_public_id=${person_id}" \
+  --data-urlencode "_csrf=${token}" \
+  "$BASE/m/${code_value}/vote"
+chosen=$(curl -s -c "$PART" -b "$PART" "$BASE/m/${code_value}/vote")
+printf '%s' "$chosen" | grep -q 'Ditt val: Karin Holm' || fail "bekräftelsen saknar det valda namnet"
+if printf '%s' "$chosen" | grep -q 'data-result-row'; then
+  fail "deltagaren såg fördelning efter personvalet"
+fi
+admin_state=$(curl -s -c "$ADMIN" -b "$ADMIN" "$BASE/api/admin/meeting/state?meeting=${public_id}")
+if printf '%s' "$admin_state" | grep -q 'Karin'; then
+  fail "admin-API nämnde en kandidat"
+fi
+if printf '%s' "$admin_state" | grep -q 'opt1'; then
+  fail "admin-API nämnde alternativnyckel"
+fi
+page=$(curl -s -c "$ADMIN" -b "$ADMIN" "$BASE/meeting/${public_id}/votes")
+token=$(printf '%s' "$page" | csrf_from)
+curl -s -c "$ADMIN" -b "$ADMIN" -o /dev/null \
+  -d "action=close&_csrf=${token}" \
+  "$BASE/meeting/${public_id}/votes/${person_id}"
+person_result=$(curl -s -c "$PART" -b "$PART" "$BASE/m/${code_value}/vote")
+printf '%s' "$person_result" | grep -q 'data-result-row="opt1"' || fail "personvalets resultat saknar opt1"
+printf '%s' "$person_result" | grep -q 'Karin Holm' || fail "personvalets resultat saknar namnet"
+
 echo "HTTP-flödet lyckades"

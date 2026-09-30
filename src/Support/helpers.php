@@ -48,6 +48,18 @@ function format_percent(float $value): string
     return str_ends_with($text, ',0') ? substr($text, 0, -2) : $text;
 }
 
+function voting_type_label(string $type): string
+{
+    return match ($type) {
+        'yes_no_abstain' => 'JA / NEJ / AVSTÅR',
+        'single_choice' => 'Eget val',
+        'multiple_choice' => 'Flera val',
+        'person' => 'Personval',
+        'ranked' => 'Rangordnat val',
+        default => $type,
+    };
+}
+
 function poll_status_label(string $status): string
 {
     return match ($status) {

@@ -19,7 +19,7 @@ final class BallotService
 
     public function cast(int $participantId, string $optionKey, string $expectedPollPublicId = ''): void
     {
-        if (!in_array($optionKey, ['yes', 'no', 'abstain'], true)) {
+        if (!preg_match('/^[a-z0-9_]{1,32}$/', $optionKey)) {
             throw new AppException('VALIDATION', 'Ogiltigt svarsalternativ.');
         }
         db_transaction($this->pdo, function () use ($participantId, $optionKey, $expectedPollPublicId) {
@@ -38,7 +38,7 @@ final class BallotService
             if ($poll === null || $poll['status'] !== 'open') {
                 throw new AppException('NO_OPEN_POLL', 'Det finns ingen öppen omröstning.');
             }
-            if ($poll['voting_type'] !== 'yes_no_abstain' || $poll['visibility'] !== 'open') {
+            if (!in_array($poll['voting_type'], ['yes_no_abstain', 'single_choice'], true) || $poll['visibility'] !== 'open') {
                 throw new AppException('UNSUPPORTED', 'Den här omröstningen kan inte ta emot röster i den här versionen.');
             }
             if ($expectedPollPublicId !== '' && !hash_equals((string) $poll['public_id'], $expectedPollPublicId)) {

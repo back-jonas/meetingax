@@ -14,8 +14,16 @@ final class PollService
     {
     }
 
-    public function create(array $meeting, int $userId, string $title, ?string $description, bool $showResults): array
-    {
+    public function create(
+        array $meeting,
+        int $userId,
+        string $title,
+        ?string $description,
+        bool $showResults,
+        string $votingType = 'yes_no_abstain',
+        string $optionsText = '',
+        bool $includeAbstain = true,
+    ): array {
         if (!in_array($meeting['status'], ['draft', 'open'], true)) {
             throw new AppException('INVALID_STATE', 'Omröstningar kan bara skapas medan mötet är utkast eller öppet.');
         }
@@ -31,16 +39,25 @@ final class PollService
                 throw new AppException('VALIDATION', 'Beskrivningen är för lång.');
             }
         }
-        return db_transaction($this->pdo, function () use ($meeting, $userId, $title, $description, $showResults) {
-            $pollId = $this->insertPoll((int) $meeting['id'], $userId, $title, $description, $showResults);
+        if (!in_array($votingType, ['yes_no_abstain', 'single_choice'], true)) {
+            throw new AppException('VALIDATION', 'Välj JA, NEJ och AVSTÅR eller ett eget val.');
+        }
+        $options = $votingType === 'yes_no_abstain'
+            ? [['yes', 'JA'], ['no', 'NEJ'], ['abstain', 'AVSTÅR']]
+            : $this->customOptions($optionsText, $includeAbstain);
+        return db_transaction($this->pdo, function () use ($meeting, $userId, $title, $description, $showResults, $votingType, $options) {
+            $pollId = $this->insertPoll((int) $meeting['id'], $userId, $title, $description, $showResults, $votingType);
             $stmt = $this->pdo->prepare(
                 'INSERT INTO poll_options (poll_id, option_key, label, sort_order) VALUES (?, ?, ?, ?)'
             );
-            foreach ([['yes', 'JA', 1], ['no', 'NEJ', 2], ['abstain', 'AVSTÅR', 3]] as $option) {
-                $stmt->execute([$pollId, $option[0], $option[1], $option[2]]);
+            $sort = 1;
+            foreach ($options as [$key, $label]) {
+                $stmt->execute([$pollId, $key, $label, $sort]);
+                $sort++;
             }
             (new AuditLog($this->pdo))->write((int) $meeting['id'], $userId, null, 'VOTE_CREATED', [
                 'title' => $title,
+                'voting_type' => $votingType,
             ]);
             return $this->mustFind($pollId, (int) $meeting['id']);
         });
@@ -62,6 +79,8 @@ final class PollService
             if ($poll['status'] === 'closed') {
                 $poll['results'] = $this->results((int) $poll['id']);
                 $poll['turnout'] = $this->turnout((int) $poll['id'], $meetingId);
+            } else {
+                $poll['options'] = $this->options((int) $poll['id']);
             }
         }
         unset($poll);
@@ -280,12 +299,69 @@ final class PollService
 
     private function assertSupported(array $poll): void
     {
-        if (($poll['voting_type'] ?? '') !== 'yes_no_abstain' || ($poll['visibility'] ?? '') !== 'open') {
+        $type = (string) ($poll['voting_type'] ?? '');
+        if (!in_array($type, ['yes_no_abstain', 'single_choice'], true) || ($poll['visibility'] ?? '') !== 'open') {
             throw new AppException('UNSUPPORTED', 'Den här omröstningstypen kan inte öppnas i den här versionen.');
         }
     }
 
-    private function insertPoll(int $meetingId, int $userId, string $title, ?string $description, bool $showResults): int
+    /**
+     * Ett alternativ per rad. Nycklarna skapas här och tas aldrig från klienten.
+     * Raden AVSTÅR hoppas över när rutan är ikryssad och läggs sist.
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    private function customOptions(string $optionsText, bool $includeAbstain): array
+    {
+        if (mb_strlen($optionsText) > 4000) {
+            throw new AppException('VALIDATION', 'Listan med svarsalternativ är för lång.');
+        }
+        $lines = preg_split('/\R/u', $optionsText) ?: [];
+        $options = [];
+        $seen = [];
+        $index = 1;
+        foreach ($lines as $line) {
+            $label = trim($line);
+            if ($label === '') {
+                continue;
+            }
+            if (mb_strlen($label) > 120) {
+                throw new AppException('VALIDATION', 'Ett svarsalternativ får vara högst 120 tecken.');
+            }
+            $folded = mb_strtolower($label, 'UTF-8');
+            if ($includeAbstain && $folded === 'avstår') {
+                continue;
+            }
+            if (isset($seen[$folded])) {
+                throw new AppException('VALIDATION', 'Svarsalternativen måste skilja sig åt.');
+            }
+            $seen[$folded] = true;
+            $options[] = ['opt' . $index, $label];
+            $index++;
+            if (count($options) > 30) {
+                throw new AppException('VALIDATION', 'Högst 30 svarsalternativ.');
+            }
+        }
+        if ($includeAbstain) {
+            $options[] = ['abstain', 'AVSTÅR'];
+        }
+        if (count($options) < 2) {
+            throw new AppException('VALIDATION', 'Ange minst två svarsalternativ, eller ett alternativ och AVSTÅR.');
+        }
+        if (count($options) > 30) {
+            throw new AppException('VALIDATION', 'Högst 30 svarsalternativ.');
+        }
+        return $options;
+    }
+
+    private function insertPoll(
+        int $meetingId,
+        int $userId,
+        string $title,
+        ?string $description,
+        bool $showResults,
+        string $votingType,
+    ): int
     {
         for ($attempt = 0; $attempt < 5; $attempt++) {
             try {
@@ -298,7 +374,7 @@ final class PollService
                     $meetingId,
                     $title,
                     $description,
-                    'yes_no_abstain',
+                    $votingType,
                     'open',
                     $showResults ? 1 : 0,
                     'draft',

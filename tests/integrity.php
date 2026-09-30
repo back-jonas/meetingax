@@ -197,6 +197,66 @@ foreach ($adminPolls as $row) {
 }
 check($hiddenRow !== null && isset($hiddenRow['results']), 'admin ser resultat efter stängning även om deltagare inte gör det');
 
+expect_exception(
+    fn () => $polls->create($meeting, $ownerId, 'För få', null, true, 'single_choice', 'Bara ett', false),
+    'VALIDATION',
+    'ett alternativ utan AVSTÅR stoppas'
+);
+expect_exception(
+    fn () => $polls->create($meeting, $ownerId, 'Dubblett', null, true, 'single_choice', "Karin Holm\nkarin holm", true),
+    'VALIDATION',
+    'dubbletter bland alternativen stoppas'
+);
+expect_exception(
+    fn () => $polls->create($meeting, $ownerId, 'Fel typ', null, true, 'person', '', false),
+    'VALIDATION',
+    'okänd omröstningstyp stoppas'
+);
+
+$person = $polls->create($meeting, $ownerId, 'Ordförande', null, true, 'single_choice', "Karin Holm\nBo Berg\nAVSTÅR", true);
+$personOptions = $polls->options((int) $person['id']);
+check(count($personOptions) === 3, 'personval får tre alternativ');
+check($personOptions[0]['label'] === 'Karin Holm' && $personOptions[0]['option_key'] === 'opt1', 'första alternativet är Karin');
+check($personOptions[1]['option_key'] === 'opt2' && $personOptions[2]['option_key'] === 'abstain', 'AVSTÅR läggs sist en gång');
+$polls->open($meeting, $person, $ownerId);
+expect_exception(
+    fn () => $ballots->cast((int) $participant['id'], 'opt99', $person['public_id']),
+    'VALIDATION',
+    'okänt alternativ stoppas'
+);
+$ballots->cast((int) $participant['id'], 'opt1', $person['public_id']);
+$screen = $state->participantScreen($participant);
+check($screen['mode'] === 'voted' && $screen['own_choice'] === 'Karin Holm', 'deltagaren ser sitt personval');
+check($screen['results'] === null, 'personval visar inte resultat medan det är öppet');
+$adminJson = json_encode($state->adminState($meeting), JSON_THROW_ON_ERROR);
+check(
+    !str_contains($adminJson, 'Karin') && !str_contains($adminJson, 'opt1') && !str_contains($adminJson, 'percent'),
+    'admin-API döljer personvalets fördelning'
+);
+expect_exception(
+    fn () => $ballots->cast((int) $participant['id'], 'opt2', $person['public_id']),
+    'ALREADY_VOTED',
+    'andra personvalet stoppas'
+);
+$events = (new AuditLog($pdo))->forMeeting((int) $meeting['id']);
+$ballotEvents = array_values(array_filter($events, static fn (array $event): bool => $event['event_type'] === 'BALLOT_SUBMITTED'));
+$lastBallot = (string) $ballotEvents[array_key_last($ballotEvents)]['event_data_json'];
+check(!str_contains($lastBallot, 'Karin') && !str_contains($lastBallot, 'opt1'), 'auditloggen saknar personvalet');
+$polls->close($meeting, $person, $ownerId);
+$screen = $state->participantScreen($participant);
+$karinVotes = null;
+foreach ($screen['results'] as $row) {
+    if ($row['option_key'] === 'opt1') {
+        $karinVotes = (int) $row['votes'];
+    }
+}
+check($karinVotes === 1, 'Karin får en röst');
+
+$multi = $polls->create($meeting, $ownerId, 'Flera samtidigt', null, true);
+$pdo->prepare('UPDATE polls SET voting_type = ? WHERE id = ?')->execute(['multiple_choice', $multi['id']]);
+$multi = $polls->findInMeeting((int) $meeting['id'], $multi['public_id']);
+expect_exception(fn () => $polls->open($meeting, $multi, $ownerId), 'UNSUPPORTED', 'flerval öppnas inte');
+
 $other = $participants->register($meeting, 'Bo Berg', 'bo@example.com', $extracted['values']);
 $participants->reject($meeting, $other['participant'], $ownerId);
 $left = (int) $pdo->query('SELECT COUNT(*) FROM participant_sessions WHERE participant_id = ' . (int) $other['participant']['id'])->fetchColumn();

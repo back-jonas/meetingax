@@ -92,6 +92,15 @@
             type.addEventListener("change", sync);
             sync();
         }
+        const votingType = document.querySelector("[data-voting-type]");
+        const customOptions = document.querySelector("[data-custom-options]");
+        if (votingType && customOptions) {
+            const syncVoting = function () {
+                customOptions.hidden = votingType.value !== "single_choice";
+            };
+            votingType.addEventListener("change", syncVoting);
+            syncVoting();
+        }
         document.addEventListener("click", function (event) {
             const button = event.target.closest("[data-copy]");
             if (!button) {
