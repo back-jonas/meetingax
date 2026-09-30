@@ -69,6 +69,8 @@ final class AuditLog
             },
             'PARTICIPANT_REGISTERED' => $name . ' anmälde sig',
             'RETURN_LINK_USED' => $name . ' kom tillbaka via mejllänken',
+            'RETURN_LINK_SENT' => 'En ny mejllänk skapades för ' . $name,
+            'PARTICIPANT_EMAIL_CHANGED' => 'E-postadressen ändrades för ' . $name,
             'PARTICIPANT_APPROVED' => $name . ' godkändes',
             'PARTICIPANT_REJECTED' => $name . ' avslogs',
             'PARTICIPANT_REMOVED' => $name . ' togs bort',

@@ -19,7 +19,19 @@
                 <?php foreach ($participants as $person): ?>
                     <tr>
                         <td><?= e($person['name']) ?></td>
-                        <td><?= e($person['email']) ?></td>
+                        <td>
+                            <?php if ($meeting['status'] !== 'archived' && in_array($person['status'], ['pending', 'approved'], true)): ?>
+                                <form method="post" action="<?= e(url('/meeting/' . $meeting['public_id'] . '/participants/' . $person['public_id'])) ?>" class="email-edit">
+                                    <?php require __DIR__ . '/../../partials/csrf.php'; ?>
+                                    <input type="email" name="email" required maxlength="255" value="<?= e($person['email']) ?>" aria-label="E-post för <?= e($person['name']) ?>">
+                                    <button class="btn btn-ghost" name="action" value="email" type="submit">Spara och skicka länk</button>
+                                    <button class="btn btn-ghost" name="action" value="resend" type="submit">Skicka länken igen</button>
+                                    <p class="muted">Den tidigare länken slutar fungera.</p>
+                                </form>
+                            <?php else: ?>
+                                <?= e($person['email']) ?>
+                            <?php endif; ?>
+                        </td>
                         <td>
                             <?php if ($person['fields'] === []): ?>
                                 <span class="muted">–</span>

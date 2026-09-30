@@ -203,6 +203,63 @@ final class ParticipantService
         });
     }
 
+    /**
+     * Byter e-post och skapar en ny återlänk. Utan ny adress skickas bara en ny länk.
+     * Den tidigare länken slutar fungera. Ett adressbyte avslutar också pågående besök.
+     *
+     * @return array{name: string, email: string, return_token: string, email_changed: bool}
+     */
+    public function reissueReturnLink(array $meeting, array $participant, int $userId, ?string $newEmail): array
+    {
+        $issued = null;
+        $this->change($meeting, $participant, $userId, function (array $locked) use ($userId, $newEmail, &$issued): void {
+            if (!in_array($locked['status'], ['pending', 'approved'], true)) {
+                throw new AppException('INVALID_STATE', 'Länken kan bara skickas för en anmälan som väntar eller är godkänd.');
+            }
+            $email = (string) $locked['email'];
+            $changed = false;
+            if ($newEmail !== null) {
+                $error = Validator::email($newEmail);
+                if ($error !== null) {
+                    throw new AppException('VALIDATION', $error);
+                }
+                $email = Validator::normalizeEmail($newEmail);
+                if ($email !== (string) $locked['email']) {
+                    try {
+                        $this->pdo->prepare('UPDATE participants SET email = ? WHERE id = ?')->execute([$email, (int) $locked['id']]);
+                    } catch (PDOException $e) {
+                        if (is_duplicate_key($e)) {
+                            throw new AppException('DUPLICATE_EMAIL', 'E-postadressen används redan av en annan anmälan i mötet.');
+                        }
+                        throw $e;
+                    }
+                    $this->pdo->prepare('DELETE FROM participant_sessions WHERE participant_id = ?')->execute([(int) $locked['id']]);
+                    $changed = true;
+                    (new AuditLog($this->pdo))->write((int) $locked['meeting_id'], $userId, (int) $locked['id'], 'PARTICIPANT_EMAIL_CHANGED', [
+                        'name' => $locked['name'],
+                        'email' => $email,
+                    ]);
+                }
+            }
+            $links = new ReturnLinkService($this->pdo, $this->returnLifetime);
+            $links->revoke((int) $locked['id']);
+            $token = $links->issue((int) $locked['id']);
+            (new AuditLog($this->pdo))->write((int) $locked['meeting_id'], $userId, (int) $locked['id'], 'RETURN_LINK_SENT', [
+                'name' => $locked['name'],
+            ]);
+            $issued = [
+                'name' => (string) $locked['name'],
+                'email' => $email,
+                'return_token' => $token,
+                'email_changed' => $changed,
+            ];
+        });
+        if (!is_array($issued)) {
+            throw new AppException('RETRY', 'Kunde inte skicka länken. Försök igen.');
+        }
+        return $issued;
+    }
+
     public function revokeVote(array $meeting, array $participant, int $userId): void
     {
         $this->change($meeting, $participant, $userId, function (array $locked) use ($userId): void {

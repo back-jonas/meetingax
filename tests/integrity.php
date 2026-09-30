@@ -286,6 +286,34 @@ $pdo->prepare('UPDATE polls SET voting_type = ? WHERE id = ?')->execute(['multip
 $multi = $polls->findInMeeting((int) $meeting['id'], $multi['public_id']);
 expect_exception(fn () => $polls->open($meeting, $multi, $ownerId), 'UNSUPPORTED', 'flerval öppnas inte');
 
+$wrong = $participants->register($meeting, 'Maja Fel', 'fel@example.com', $extracted['values']);
+$oldLink = (string) $wrong['return_token'];
+$majaSessions = (int) $pdo->query('SELECT COUNT(*) FROM participant_sessions WHERE participant_id = ' . (int) $wrong['participant']['id'])->fetchColumn();
+check($majaSessions === 1, 'felskriven anmälan har en session');
+$updated = $participants->reissueReturnLink($meeting, $wrong['participant'], $ownerId, 'ratt@example.com');
+check($updated['email'] === 'ratt@example.com' && $updated['email_changed'] === true, 'admin byter e-post');
+check($updated['return_token'] !== $oldLink, 'adressbyte skapar en ny länk');
+$majaSessions = (int) $pdo->query('SELECT COUNT(*) FROM participant_sessions WHERE participant_id = ' . (int) $wrong['participant']['id'])->fetchColumn();
+check($majaSessions === 0, 'adressbyte avslutar pågående besök');
+expect_exception(fn () => $links->redeem($oldLink), 'NOT_FOUND', 'gamla länken dör när e-posten byts');
+$opened = $links->redeem($updated['return_token']);
+check($opened['status'] === 'pending', 'nya länken öppnar anmälan');
+expect_exception(
+    fn () => $participants->reissueReturnLink($meeting, $wrong['participant'], $ownerId, 'anna@example.com'),
+    'DUPLICATE_EMAIL',
+    'admin kan inte ta en upptagen e-post'
+);
+$resent = $participants->reissueReturnLink($meeting, $wrong['participant'], $ownerId, null);
+check($resent['email_changed'] === false && $resent['return_token'] !== $updated['return_token'], 'länken kan skickas igen utan adressbyte');
+$majaSessions = (int) $pdo->query('SELECT COUNT(*) FROM participant_sessions WHERE participant_id = ' . (int) $wrong['participant']['id'])->fetchColumn();
+check($majaSessions === 1, 'omskick avslutar inte pågående besök');
+expect_exception(fn () => $links->redeem($updated['return_token']), 'NOT_FOUND', 'omskick ersätter den tidigare länken');
+$events = (new AuditLog($pdo))->forMeeting((int) $meeting['id']);
+$sentEvents = array_values(array_filter($events, static fn (array $event): bool => $event['event_type'] === 'RETURN_LINK_SENT'));
+$sentJson = (string) $sentEvents[0]['event_data_json'];
+check(!str_contains($sentJson, (string) $resent['return_token']), 'auditloggen saknar återlänken');
+check(AuditLog::label($sentEvents[0]) === 'En ny mejllänk skapades för Maja Fel', 'loggen visar att länken skapades');
+
 $other = $participants->register($meeting, 'Bo Berg', 'bo@example.com', $extracted['values']);
 $participants->reject($meeting, $other['participant'], $ownerId);
 $left = (int) $pdo->query('SELECT COUNT(*) FROM participant_sessions WHERE participant_id = ' . (int) $other['participant']['id'])->fetchColumn();
@@ -293,6 +321,11 @@ check($left === 0, 'avslag ogiltigförklarar sessionen');
 $leftLinks = (int) $pdo->query('SELECT COUNT(*) FROM participant_return_tokens WHERE participant_id = ' . (int) $other['participant']['id'])->fetchColumn();
 check($leftLinks === 0, 'avslag ogiltigförklarar återlänken');
 expect_exception(fn () => $links->redeem((string) $other['return_token']), 'NOT_FOUND', 'avslagen återlänk stoppas');
+expect_exception(
+    fn () => $participants->reissueReturnLink($meeting, $other['participant'], $ownerId, 'bo2@example.com'),
+    'INVALID_STATE',
+    'avslagen anmälan får ingen ny länk'
+);
 $again = $participants->register($meeting, 'Bo Berg', 'bo@example.com', $extracted['values']);
 check($again['participant']['status'] === 'pending', 'avslagen e-post kan anmälas på nytt');
 

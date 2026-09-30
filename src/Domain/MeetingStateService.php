@@ -66,7 +66,7 @@ final class MeetingStateService
     {
         $parts = [(string) $meeting['status']];
         foreach ($people as $person) {
-            $parts[] = $person['public_id'] . ':' . $person['status'] . ':' . (int) $person['is_voting_eligible'];
+            $parts[] = $person['public_id'] . ':' . $person['status'] . ':' . (int) $person['is_voting_eligible'] . ':' . $person['email'];
         }
         foreach ($polls as $poll) {
             $parts[] = $poll['public_id'] . ':' . $poll['status'] . ':' . (int) $poll['show_results_to_participants'];

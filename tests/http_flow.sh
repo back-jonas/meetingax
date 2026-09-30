@@ -323,4 +323,60 @@ person_result=$(curl -s -c "$PART" -b "$PART" "$BASE/m/${code_value}/vote")
 printf '%s' "$person_result" | grep -q 'data-result-row="opt1"' || fail "personvalets resultat saknar opt1"
 printf '%s' "$person_result" | grep -q 'Karin Holm' || fail "personvalets resultat saknar namnet"
 
+echo "Admin rättar e-post och skickar ny länk"
+maja="$WORKDIR/maja.jar"
+page=$(curl -s -c "$maja" -b "$maja" "$BASE/m/${code_value}/register")
+token=$(printf '%s' "$page" | csrf_from)
+curl -s -c "$maja" -b "$maja" -o /dev/null \
+  --data-urlencode "name=Maja Fel" \
+  --data-urlencode "email=fel-${STAMP}@example.com" \
+  --data-urlencode "field[kommun]=Lund" \
+  --data-urlencode "_csrf=${token}" \
+  "$BASE/m/${code_value}/register"
+old_mail=$(grep -l "fel-${STAMP}@example.com" "$ROOT"/storage/mail/*.txt 2>/dev/null | tail -n 1 || true)
+[[ -n "$old_mail" ]] || fail "mejlet till den felskrivna adressen saknas"
+old_url=$(python3 -c 'import re,sys; text=open(sys.argv[1], encoding="utf-8").read(); m=re.search(r"https?://\S+/ater/[a-f0-9]{64}", text); print(m.group(0) if m else "")' "$old_mail")
+[[ -n "$old_url" ]] || fail "den första återlänken saknas"
+people=$(curl -s -c "$ADMIN" -b "$ADMIN" "$BASE/meeting/${public_id}/participants")
+printf '%s' "$people" | grep -q 'Spara och skicka länk' || fail "admin saknar formulär för e-post"
+maja_id=$(python3 -c 'import re,sys; html=sys.stdin.read(); i=html.find("Maja Fel"); chunk=html[i:i+1200]; m=re.search(r"/participants/([A-Z0-9]{12})", chunk); print(m.group(1) if m else "")' <<<"$people")
+[[ -n "$maja_id" ]] || fail "hittade inte Majas anmälan"
+token=$(printf '%s' "$people" | csrf_from)
+curl -s -c "$ADMIN" -b "$ADMIN" -o /dev/null \
+  --data-urlencode "action=email" \
+  --data-urlencode "email=ratt-${STAMP}@example.com" \
+  --data-urlencode "_csrf=${token}" \
+  "$BASE/meeting/${public_id}/participants/${maja_id}"
+old_code=$(curl -s -o "$WORKDIR/oldlink.html" -w '%{http_code}' "$old_url")
+[[ "$old_code" == "404" ]] || fail "gamla länken fungerade efter adressbytet ($old_code)"
+new_mail=$(grep -l "ratt-${STAMP}@example.com" "$ROOT"/storage/mail/*.txt 2>/dev/null | tail -n 1 || true)
+[[ -n "$new_mail" ]] || fail "mejlet till den rättade adressen saknas"
+new_url=$(python3 -c 'import re,sys; text=open(sys.argv[1], encoding="utf-8").read(); m=re.search(r"https?://\S+/ater/[a-f0-9]{64}", text); print(m.group(0) if m else "")' "$new_mail")
+[[ -n "$new_url" && "$new_url" != "$old_url" ]] || fail "nya länken saknas"
+fixed="$WORKDIR/fixed.jar"
+curl -s -c "$fixed" -b "$fixed" -L -o "$WORKDIR/fixed.html" "$new_url"
+printf '%s' "$(cat "$WORKDIR/fixed.html")" | grep -q 'Maja Fel' || fail "nya länken öppnade inte Majas anmälan"
+people=$(curl -s -c "$ADMIN" -b "$ADMIN" "$BASE/meeting/${public_id}/participants")
+token=$(printf '%s' "$people" | csrf_from)
+curl -s -c "$ADMIN" -b "$ADMIN" -o /dev/null \
+  --data-urlencode "action=resend" \
+  --data-urlencode "_csrf=${token}" \
+  "$BASE/meeting/${public_id}/participants/${maja_id}"
+replaced=$(curl -s -o /dev/null -w '%{http_code}' "$new_url")
+[[ "$replaced" == "404" ]] || fail "omskickad länk ersatte inte den förra ($replaced)"
+resent_mail=$(grep -l "ratt-${STAMP}@example.com" "$ROOT"/storage/mail/*.txt 2>/dev/null | tail -n 1 || true)
+resent_url=$(python3 -c 'import re,sys; text=open(sys.argv[1], encoding="utf-8").read(); m=re.search(r"https?://\S+/ater/[a-f0-9]{64}", text); print(m.group(0) if m else "")' "$resent_mail")
+[[ -n "$resent_url" && "$resent_url" != "$new_url" ]] || fail "omskicket saknar en ny länk"
+still=$(curl -s -o /dev/null -w '%{http_code}' -c "$fixed" -b "$fixed" -L "$BASE/m/${code_value}/vote")
+[[ "$still" == "200" ]] || fail "pågående besök avslutades vid omskick ($still)"
+dash=$(curl -s -c "$other" -b "$other" "$BASE/dashboard")
+otoken=$(printf '%s' "$dash" | csrf_from)
+other_code=$(curl -s -o "$WORKDIR/othermail.html" -w '%{http_code}' -c "$other" -b "$other" \
+  --data-urlencode "action=email" \
+  --data-urlencode "email=kapad-${STAMP}@example.com" \
+  --data-urlencode "_csrf=${otoken}" \
+  "$BASE/meeting/${public_id}/participants/${maja_id}")
+[[ "$other_code" == "404" ]] || fail "annan arrangör kunde byta e-post ($other_code)"
+assert_not_leak "$WORKDIR/othermail.html"
+
 echo "HTTP-flödet lyckades"

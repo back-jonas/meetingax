@@ -13,10 +13,8 @@ use Meetingax\Domain\MeetingStateService;
 use Meetingax\Domain\ParticipantService;
 use Meetingax\Domain\ReturnLinkService;
 use Meetingax\Http\Controller;
-use Meetingax\Mail\MailerFactory;
-use Meetingax\Mail\ReturnMail;
+use Meetingax\Mail\ReturnNotifier;
 use Meetingax\Support\Flash;
-use Throwable;
 
 /** Deltagarens mobilvy: anmälan, väntan och röstning. */
 final class ParticipantPageController extends Controller
@@ -205,25 +203,13 @@ final class ParticipantPageController extends Controller
 
     private function sendReturnMail(array $meeting, array $result): bool
     {
-        try {
-            $token = (string) ($result['return_token'] ?? '');
-            $participant = is_array($result['participant'] ?? null) ? $result['participant'] : [];
-            $url = app_base_url($this->app->config) . '/ater/' . $token;
-            MailerFactory::fromConfig($this->app->config)->send(
-                (string) ($participant['email'] ?? ''),
-                ReturnMail::subject((string) $meeting['title']),
-                ReturnMail::body(
-                    (string) ($participant['name'] ?? ''),
-                    (string) $meeting['title'],
-                    (string) $meeting['meeting_code'],
-                    $url,
-                    $this->returnLifetime()
-                )
-            );
-            return true;
-        } catch (Throwable $e) {
-            error_log($e->getMessage());
-            return false;
-        }
+        $participant = is_array($result['participant'] ?? null) ? $result['participant'] : [];
+        return ReturnNotifier::send(
+            $this->app->config,
+            $meeting,
+            (string) ($participant['name'] ?? ''),
+            (string) ($participant['email'] ?? ''),
+            (string) ($result['return_token'] ?? '')
+        );
     }
 }

@@ -12,6 +12,7 @@ use Meetingax\Domain\MeetingStateService;
 use Meetingax\Domain\ParticipantService;
 use Meetingax\Domain\PollService;
 use Meetingax\Http\Controller;
+use Meetingax\Mail\ReturnNotifier;
 use Meetingax\Support\Flash;
 
 /** Administration av ett möte. Behörighet kontrolleras mot meeting_roles. */
@@ -114,21 +115,58 @@ final class MeetingController extends Controller
     {
         $this->assertCsrf();
         [$user, $meeting] = $this->owned($publicId);
-        $service = new ParticipantService($this->app->pdo);
+        $mail = is_array($this->app->config['mail'] ?? null) ? $this->app->config['mail'] : [];
+        $service = new ParticipantService(
+            $this->app->pdo,
+            (int) ($this->app->config['participant_cookie']['lifetime'] ?? 43200),
+            (int) ($mail['return_link_lifetime'] ?? 604800)
+        );
         $participant = $service->findInMeeting((int) $meeting['id'], $participantPublicId);
         if (!$participant) {
             throw new AppException('NOT_FOUND', 'Deltagaren hittades inte.', 404);
         }
         try {
-            match ($this->app->request->input('action')) {
-                'approve' => $service->approve($meeting, $participant, (int) $user['id']),
-                'reject' => $service->reject($meeting, $participant, (int) $user['id']),
-                'remove' => $service->remove($meeting, $participant, (int) $user['id']),
-                'grant' => $service->grantVote($meeting, $participant, (int) $user['id']),
-                'revoke' => $service->revokeVote($meeting, $participant, (int) $user['id']),
-                default => throw new AppException('VALIDATION', 'Okänd åtgärd.'),
-            };
-            Flash::set('ok', 'Deltagaren uppdaterades.');
+            $action = $this->app->request->input('action');
+            if ($action === 'email' || $action === 'resend') {
+                if (!$this->app->rates->allow('participant-email', (string) $user['id'], 30, 600)) {
+                    throw new AppException('RATE_LIMIT', 'För många försök. Vänta en stund och försök igen.');
+                }
+                $issued = $service->reissueReturnLink(
+                    $meeting,
+                    $participant,
+                    (int) $user['id'],
+                    $action === 'email' ? $this->app->request->input('email') : null
+                );
+                $sent = ReturnNotifier::send(
+                    $this->app->config,
+                    $meeting,
+                    $issued['name'],
+                    $issued['email'],
+                    $issued['return_token']
+                );
+                if (!$sent) {
+                    Flash::set(
+                        'err',
+                        $issued['email_changed']
+                            ? 'E-postadressen uppdaterades, men mejlet kunde inte skickas. Försök att skicka länken igen.'
+                            : 'Länken kunde inte mejlas.'
+                    );
+                } elseif ($issued['email_changed']) {
+                    Flash::set('ok', 'E-postadressen uppdaterades och en ny länk skickades till ' . $issued['email'] . '. Den tidigare länken fungerar inte längre.');
+                } else {
+                    Flash::set('ok', 'En ny länk skickades till ' . $issued['email'] . '. Den tidigare länken fungerar inte längre.');
+                }
+            } else {
+                match ($action) {
+                    'approve' => $service->approve($meeting, $participant, (int) $user['id']),
+                    'reject' => $service->reject($meeting, $participant, (int) $user['id']),
+                    'remove' => $service->remove($meeting, $participant, (int) $user['id']),
+                    'grant' => $service->grantVote($meeting, $participant, (int) $user['id']),
+                    'revoke' => $service->revokeVote($meeting, $participant, (int) $user['id']),
+                    default => throw new AppException('VALIDATION', 'Okänd åtgärd.'),
+                };
+                Flash::set('ok', 'Deltagaren uppdaterades.');
+            }
         } catch (AppException $e) {
             Flash::set('err', $e->getMessage());
         }
