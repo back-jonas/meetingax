@@ -1,0 +1,4 @@
+/config/config.php
+/storage/mail/
+.DS_Store
+*.log
