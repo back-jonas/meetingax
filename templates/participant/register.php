@@ -31,5 +31,5 @@
         <?php endforeach; ?>
         <button class="btn btn-primary" type="submit">Anmäl mig</button>
     </form>
-    <p class="muted">Du kommer in i mötet först när arrangören har godkänt dig.</p>
+    <p class="muted">Du kommer in i mötet först när arrangören har godkänt dig. En personlig länk skickas till din e-post så att du kan komma tillbaka om du stänger webbläsaren.</p>
 <?php endif; ?>

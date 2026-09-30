@@ -17,7 +17,11 @@ use Meetingax\Domain\MeetingService;
 use Meetingax\Domain\MeetingStateService;
 use Meetingax\Domain\ParticipantService;
 use Meetingax\Domain\PollService;
+use Meetingax\Domain\ReturnLinkService;
 use Meetingax\Domain\UserService;
+use Meetingax\Mail\LogMailer;
+use Meetingax\Mail\ReturnMail;
+use Meetingax\Mail\SmtpMailer;
 use Meetingax\Support\Tokens;
 
 $config = meetingax_config();
@@ -142,6 +146,31 @@ check((int) $participant['is_voting_eligible'] === 0, 'rösträtt ges inte vid a
 $sessionCount = (int) $pdo->query('SELECT COUNT(*) FROM participant_sessions')->fetchColumn();
 check($sessionCount === 1, 'session skapas vid registrering');
 check(hash('sha256', $registered['token']) === (string) $pdo->query('SELECT token_hash FROM participant_sessions')->fetchColumn(), 'bara hashen sparas');
+check(strlen((string) $registered['return_token']) === 64, 'återlänk skapas vid anmälan');
+$returnHash = hash('sha256', (string) $registered['return_token']);
+$storedReturn = (string) $pdo->query('SELECT token_hash FROM participant_return_tokens')->fetchColumn();
+check($storedReturn === $returnHash && $storedReturn !== $registered['return_token'], 'bara hashen av återlänken sparas');
+$links = new ReturnLinkService($pdo, 604800);
+$back = $links->redeem((string) $registered['return_token']);
+check($back['meeting_code'] === $meeting['meeting_code'] && $back['status'] === 'pending', 'återlänken öppnar samma anmälan');
+$again = $links->redeem((string) $registered['return_token']);
+check($again['session_token'] !== $back['session_token'], 'återlänken kan användas flera gånger');
+expect_exception(fn () => $links->redeem('inte-en-länk'), 'NOT_FOUND', 'ogiltig återlänk stoppas');
+$pdo->exec('UPDATE participant_return_tokens SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)');
+expect_exception(fn () => $links->redeem((string) $registered['return_token']), 'NOT_FOUND', 'utgången återlänk stoppas');
+$mailBody = ReturnMail::body('Anna Andersson', "Årsmöte\nBcc: x", 'SUN-7K4P', 'http://example.test/ater/' . $registered['return_token'], 604800);
+check(str_contains($mailBody, 'http://example.test/ater/') && str_contains($mailBody, 'SUN-7K4P'), 'mejlet innehåller länken och möteskoden');
+check(!str_contains(ReturnMail::subject("Årsmöte\nBcc: x"), "\n"), 'ämnesraden kan inte injicera rubriker');
+check(!str_contains($mailBody, 'JA') && !str_contains($mailBody, 'opt1'), 'mejlet innehåller inget röstval');
+$mailDir = sys_get_temp_dir() . '/meetingax-mail-' . bin2hex(random_bytes(4));
+(new LogMailer($mailDir))->send('anna@example.com', ReturnMail::subject('Årsmöte'), $mailBody);
+$logged = (string) file_get_contents(glob($mailDir . '/*.txt')[0]);
+check(str_contains($logged, 'anna@example.com') && str_contains($logged, 'SUN-7K4P'), 'loggmejlet skrivs till fil');
+expect_exception(
+    fn () => (new SmtpMailer(['from_address' => 'a@example.com', 'smtp' => ['host' => '']]))->send('a@example.com', 'Hej', 'Text'),
+    'MAIL_FAILED',
+    'smtp utan värd skickar inte'
+);
 
 expect_exception(fn () => $ballots->cast((int) $participant['id'], 'yes'), 'NOT_APPROVED', 'pending får inte rösta');
 $participants->approve($meeting, $participant, $ownerId);
@@ -261,6 +290,9 @@ $other = $participants->register($meeting, 'Bo Berg', 'bo@example.com', $extract
 $participants->reject($meeting, $other['participant'], $ownerId);
 $left = (int) $pdo->query('SELECT COUNT(*) FROM participant_sessions WHERE participant_id = ' . (int) $other['participant']['id'])->fetchColumn();
 check($left === 0, 'avslag ogiltigförklarar sessionen');
+$leftLinks = (int) $pdo->query('SELECT COUNT(*) FROM participant_return_tokens WHERE participant_id = ' . (int) $other['participant']['id'])->fetchColumn();
+check($leftLinks === 0, 'avslag ogiltigförklarar återlänken');
+expect_exception(fn () => $links->redeem((string) $other['return_token']), 'NOT_FOUND', 'avslagen återlänk stoppas');
 $again = $participants->register($meeting, 'Bo Berg', 'bo@example.com', $extracted['values']);
 check($again['participant']['status'] === 'pending', 'avslagen e-post kan anmälas på nytt');
 

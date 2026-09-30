@@ -22,6 +22,26 @@ return [
         'lifetime' => 43200,
         'secure' => false,
     ],
+    // Publik adress som skrivs i mejlet. Tomt värde använder anropets värd.
+    // Sätt den riktiga HTTPS-adressen när webbplatsen ligger bakom en proxy.
+    'app' => [
+        'url' => '',
+    ],
+    'mail' => [
+        // log skriver mejlet till storage/mail. smtp skickar på riktigt.
+        'transport' => 'log',
+        'from_address' => 'noreply@example.com',
+        'from_name' => 'Meetingax',
+        // Sju dagar. Länken kan användas flera gånger tills den går ut.
+        'return_link_lifetime' => 604800,
+        'smtp' => [
+            'host' => '',
+            'port' => 587,
+            'encryption' => 'tls',
+            'username' => '',
+            'password' => '',
+        ],
+    ],
     // Ska vara false i drift. Interna fel visas ändå aldrig i webbsvaret.
     'debug' => false,
 ];

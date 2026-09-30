@@ -20,6 +20,23 @@ function url(string $path): string
     return str_starts_with($path, '/') ? $path : '/' . $path;
 }
 
+function app_base_url(array $config): string
+{
+    $configured = rtrim((string) ($config['app']['url'] ?? ''), '/');
+    if ($configured !== '' && preg_match('#^https://#', $configured) === 1) {
+        return $configured;
+    }
+    if ($configured !== '' && preg_match('#^http://[A-Za-z0-9.-]+(?::\d+)?$#', $configured) === 1) {
+        return $configured;
+    }
+    $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    if (preg_match('/^[A-Za-z0-9.-]+(?::\d+)?$/', $host) !== 1) {
+        $host = 'localhost';
+    }
+    return ($https ? 'https' : 'http') . '://' . $host;
+}
+
 function meeting_status_label(string $status): string
 {
     return match ($status) {

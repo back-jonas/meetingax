@@ -56,6 +56,8 @@ php -S localhost:8080 -t public public/router.php
 
 Arrangören skapar ett konto, loggar in och skapar ett möte. Mötet får en kod i stil med `SUN-7K4P`. När mötet öppnas kan deltagare anmäla sig med namn, e-post och eventuella extra fält. De hamnar i vänteläge tills arrangören godkänner dem och, om de ska få rösta, ger dem rösträtt.
 
+Vid anmälan skickas ett mejl med en personlig länk. Länken öppnar samma anmälan igen om deltagaren stänger webbläsaren, byter enhet eller tappar kakan. Den kan användas flera gånger i sju dagar och innehåller inget röstval. I utveckling skrivs mejlet till `storage/mail`. I drift sätter man `mail.transport` till `smtp` och `app.url` till webbplatsens adress.
+
 Arrangören skapar en omröstning, öppnar den och stänger den. I ett eget val skrivs ett svarsalternativ per rad, och AVSTÅR kan läggas till. Deltagaren väljer ett alternativ. Sidan uppdateras själv. En röst kan bara lämnas en gång. Resultatfördelningen visas inte medan omröstningen pågår. När den stängts ser arrangören alltid resultatet. Deltagarna ser det bara om rutan om resultatvisning var ikryssad.
 
 ## Struktur
@@ -73,7 +75,7 @@ Polling sker mot `/api/participant/state` och `/api/admin/meeting/state`. Samma 
 ## Säkerhet
 
 - Lösenord lagras med `password_hash()`
-- Arrangörens session och deltagarens session är separata. Deltagartoken sparas bara som SHA-256
+- Arrangörens session och deltagarens session är separata. Deltagartoken och återlänken sparas bara som SHA-256
 - Alla ändrande anrop kräver CSRF-token
 - Behörighet kontrolleras på servern mot `meeting_roles`
 - Röster skrivs i en transaktion. En unik nyckel gör att samma deltagare inte kan lämna två röster

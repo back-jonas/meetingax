@@ -74,6 +74,9 @@ return static function (App $app): Router {
         (new MeetingController($app))->pollAction($params['publicId'], $params['pollPublicId']);
     });
 
+    $router->get('/ater/{token}', static function (array $params) use ($app): void {
+        (new ParticipantPageController($app))->resume($params['token']);
+    });
     $router->get('/m/{code}', static function (array $params) use ($app): void {
         (new ParticipantPageController($app))->entry($params['code']);
     });

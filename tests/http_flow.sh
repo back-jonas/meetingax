@@ -118,6 +118,23 @@ curl -s -c "$PART" -b "$PART" -D "$WORKDIR/join.hdr" -o "$WORKDIR/join.html" \
 grep -q '/waiting' "$WORKDIR/join.hdr" || fail "deltagaren hamnade inte i vänteläge"
 wait_page=$(curl -s -c "$PART" -b "$PART" "$BASE/m/${code_value}/waiting")
 printf '%s' "$wait_page" | grep -q 'Väntar på godkännande' || fail "väntesidan saknar text"
+printf '%s' "$wait_page" | grep -q 'Spara mejlet' || fail "bekräftelsen om mejlet saknas"
+mail_file=$(grep -l "anna-${STAMP}@example.com" "$ROOT"/storage/mail/*.txt 2>/dev/null | tail -n 1 || true)
+[[ -n "$mail_file" ]] || fail "mejlet skrevs inte"
+if grep -q 'Din röst' "$mail_file"; then
+  fail "mejlet nämner en röst"
+fi
+return_url=$(python3 -c 'import re,sys; text=open(sys.argv[1], encoding="utf-8").read(); m=re.search(r"https?://\S+/ater/[a-f0-9]{64}", text); print(m.group(0) if m else "")' "$mail_file")
+[[ -n "$return_url" ]] || fail "mejlet saknar återlänk"
+printf '%s' "$return_url" | grep -q '/ater/' || fail "återlänken har fel adress"
+fresh="$WORKDIR/return.jar"
+curl -s -c "$fresh" -b "$fresh" -L -o "$WORKDIR/return.html" "$return_url"
+grep -q 'MX_PARTICIPANT' "$fresh" || fail "återlänken satte ingen cookie"
+printf '%s' "$(cat "$WORKDIR/return.html")" | grep -q 'Anna Andersson' || fail "återlänken öppnade inte samma anmälan"
+printf '%s' "$(cat "$WORKDIR/return.html")" | grep -q 'Väntar på godkännande' || fail "återlänken hamnade inte i vänteläge"
+bad=$(curl -s -o "$WORKDIR/badlink.html" -w '%{http_code}' "$BASE/ater/$(python3 -c 'print("ab"*32)')")
+[[ "$bad" == "404" ]] || fail "ogiltig återlänk gav $bad"
+assert_not_leak "$WORKDIR/badlink.html"
 state=$(curl -s -c "$PART" -b "$PART" "$BASE/api/participant/state")
 printf '%s' "$state" | grep -q '"participant_status":"pending"' || fail "status-API är inte pending"
 code=$(curl -s -o "$WORKDIR/earlyvote.json" -w '%{http_code}' -c "$PART" -b "$PART" "$BASE/api/vote/current")

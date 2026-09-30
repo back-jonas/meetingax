@@ -15,6 +15,7 @@ final class ParticipantService
     public function __construct(
         private readonly PDO $pdo,
         private readonly int $sessionLifetime = 43200,
+        private readonly int $returnLifetime = 604800,
     ) {
     }
 
@@ -48,20 +49,28 @@ final class ParticipantService
             }
             $participantId = $this->insertParticipant((int) $meeting['id'], $name, $email);
             (new FieldService($this->pdo))->saveValues((int) $meeting['id'], $participantId, $values);
-            $token = Tokens::sessionToken();
-            $hours = max(1, min(48, intdiv($this->sessionLifetime, 3600)));
-            $this->pdo->prepare(
-                'INSERT INTO participant_sessions (participant_id, token_hash, expires_at)
-                 VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ' . $hours . ' HOUR))'
-            )->execute([$participantId, Tokens::hash($token)]);
+            $token = $this->openSession($participantId);
+            $returnToken = (new ReturnLinkService($this->pdo, $this->returnLifetime))->issue($participantId);
             (new AuditLog($this->pdo))->write((int) $meeting['id'], null, $participantId, 'PARTICIPANT_REGISTERED', [
                 'name' => $name,
             ]);
             return [
                 'participant' => $this->mustFind($participantId, (int) $meeting['id']),
                 'token' => $token,
+                'return_token' => $returnToken,
             ];
         });
+    }
+
+    public function openSession(int $participantId): string
+    {
+        $token = Tokens::sessionToken();
+        $hours = max(1, min(48, intdiv($this->sessionLifetime, 3600)));
+        $this->pdo->prepare(
+            'INSERT INTO participant_sessions (participant_id, token_hash, expires_at)
+             VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ' . $hours . ' HOUR))'
+        )->execute([$participantId, Tokens::hash($token)]);
+        return $token;
     }
 
     public function listForMeeting(int $meetingId): array
@@ -154,6 +163,7 @@ final class ParticipantService
                 'UPDATE participants SET status = ?, is_voting_eligible = 0 WHERE id = ?'
             )->execute(['rejected', $locked['id']]);
             $this->pdo->prepare('DELETE FROM participant_sessions WHERE participant_id = ?')->execute([(int) $locked['id']]);
+            (new ReturnLinkService($this->pdo))->revoke((int) $locked['id']);
             (new AuditLog($this->pdo))->write((int) $locked['meeting_id'], $userId, (int) $locked['id'], 'PARTICIPANT_REJECTED', [
                 'name' => $locked['name'],
             ]);
@@ -170,6 +180,7 @@ final class ParticipantService
                 'UPDATE participants SET status = ?, is_voting_eligible = 0 WHERE id = ?'
             )->execute(['removed', $locked['id']]);
             $this->pdo->prepare('DELETE FROM participant_sessions WHERE participant_id = ?')->execute([(int) $locked['id']]);
+            (new ReturnLinkService($this->pdo))->revoke((int) $locked['id']);
             (new AuditLog($this->pdo))->write((int) $locked['meeting_id'], $userId, (int) $locked['id'], 'PARTICIPANT_REMOVED', [
                 'name' => $locked['name'],
             ]);
@@ -254,7 +265,7 @@ final class ParticipantService
                 }
                 throw new AppException(
                     'DUPLICATE_EMAIL',
-                    'E-postadressen är redan anmäld till mötet. Kontakta mötesadministratören om du behöver anmäla dig på nytt.'
+                    'E-postadressen är redan anmäld till mötet. Öppna länken i mejlet från anmälan om du vill komma tillbaka.'
                 );
             }
         }

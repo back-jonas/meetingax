@@ -11,8 +11,12 @@ use Meetingax\Domain\FieldService;
 use Meetingax\Domain\MeetingService;
 use Meetingax\Domain\MeetingStateService;
 use Meetingax\Domain\ParticipantService;
+use Meetingax\Domain\ReturnLinkService;
 use Meetingax\Http\Controller;
+use Meetingax\Mail\MailerFactory;
+use Meetingax\Mail\ReturnMail;
 use Meetingax\Support\Flash;
+use Throwable;
 
 /** Deltagarens mobilvy: anmälan, väntan och röstning. */
 final class ParticipantPageController extends Controller
@@ -67,7 +71,8 @@ final class ParticipantPageController extends Controller
         try {
             $result = (new ParticipantService(
                 $this->app->pdo,
-                (int) ($this->app->config['participant_cookie']['lifetime'] ?? 43200)
+                (int) ($this->app->config['participant_cookie']['lifetime'] ?? 43200),
+                $this->returnLifetime()
             ))->register(
                 $meeting,
                 $this->app->request->input('name'),
@@ -79,7 +84,28 @@ final class ParticipantPageController extends Controller
             return;
         }
         $this->app->participant->establish($result['token']);
+        if ($this->sendReturnMail($meeting, $result)) {
+            Flash::set('ok', 'Vi har skickat en länk till din e-post. Spara mejlet så att du kan komma tillbaka.');
+        } else {
+            Flash::set('err', 'Anmälan är sparad, men länken kunde inte mejlas. Håll den här sidan öppen eller kontakta arrangören.');
+        }
         $this->redirect($this->path($meeting, '/waiting'));
+    }
+
+    public function resume(string $token): void
+    {
+        if (!$this->app->rates->allow('return-link', RateLimiter::clientIp(), 30, 600)) {
+            throw new AppException('RATE_LIMIT', 'För många försök. Vänta en stund och försök igen.', 429);
+        }
+        try {
+            $result = (new ReturnLinkService($this->app->pdo, $this->returnLifetime()))->redeem($token);
+        } catch (AppException) {
+            throw new AppException('NOT_FOUND', 'Länken är ogiltig eller har gått ut.', 404);
+        }
+        $this->app->participant->establish($result['session_token']);
+        header('Referrer-Policy: no-referrer');
+        $suffix = $result['status'] === 'approved' ? '/vote' : '/waiting';
+        $this->redirect('/m/' . rawurlencode($result['meeting_code']) . $suffix);
     }
 
     public function waiting(string $code): void
@@ -169,5 +195,35 @@ final class ParticipantPageController extends Controller
     private function path(array $meeting, string $suffix): string
     {
         return '/m/' . rawurlencode((string) $meeting['meeting_code']) . $suffix;
+    }
+
+    private function returnLifetime(): int
+    {
+        $mail = is_array($this->app->config['mail'] ?? null) ? $this->app->config['mail'] : [];
+        return (int) ($mail['return_link_lifetime'] ?? 604800);
+    }
+
+    private function sendReturnMail(array $meeting, array $result): bool
+    {
+        try {
+            $token = (string) ($result['return_token'] ?? '');
+            $participant = is_array($result['participant'] ?? null) ? $result['participant'] : [];
+            $url = app_base_url($this->app->config) . '/ater/' . $token;
+            MailerFactory::fromConfig($this->app->config)->send(
+                (string) ($participant['email'] ?? ''),
+                ReturnMail::subject((string) $meeting['title']),
+                ReturnMail::body(
+                    (string) ($participant['name'] ?? ''),
+                    (string) $meeting['title'],
+                    (string) $meeting['meeting_code'],
+                    $url,
+                    $this->returnLifetime()
+                )
+            );
+            return true;
+        } catch (Throwable $e) {
+            error_log($e->getMessage());
+            return false;
+        }
     }
 }
